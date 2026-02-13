@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Arreglador de Murga</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header>
+        <h1>Arreglador de Murga Uruguaya</h1>
+        <p>Flujo: tonalidad → sílaba/acorde → notas por voz en pentagrama (clic y drag vertical).</p>
+      </header>
+
+      <section class="card">
+        <h2>1) Configuración</h2>
+        <div class="row">
+          <label for="song-type">Tipo</label>
+          <select id="song-type">
+            <option>Presentación</option>
+            <option>Cuplé</option>
+            <option>Salpicón</option>
+            <option>Canción final</option>
+            <option>Retirada</option>
+          </select>
+
+          <label for="key">Tonalidad</label>
+          <select id="key"></select>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>2) Agregar sílaba y acorde</h2>
+        <form id="token-form" class="row">
+          <input id="syllable-input" placeholder="Sílaba (ej: DON)" required />
+          <input id="chord-input" placeholder="Acorde opcional (ej: Am)" />
+          <button type="submit">Agregar sílaba</button>
+          <button id="clear-line" type="button" class="muted">Limpiar</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>3) Voces activas y edición</h2>
+        <p class="hint">Elegí una voz con “Editar”, luego hacé clic en una columna del pentagrama para poner la nota. Arrastrá la nota para subir/bajar.</p>
+        <div id="voices" class="voices"></div>
+
+        <div class="staff-wrap">
+          <svg id="editor-staff" viewBox="0 0 980 320" aria-label="Pentagrama editor"></svg>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="row">
+          <button id="save-block" type="button">Guardar bloque</button>
+        </div>
+        <h2>Bloques finalizados</h2>
+        <div id="blocks" class="blocks"></div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

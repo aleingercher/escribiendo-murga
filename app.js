@@ -1,0 +1,291 @@
+const KEYS = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
+const VOICE_PRESET = [
+  { id: "prime", name: "Prime", color: "#e63946", active: true },
+  { id: "prime_alte", name: "Prime alte", color: "#1d3557", active: true },
+  { id: "segundo", name: "Segundo", color: "#2a9d8f", active: true },
+  { id: "tercia", name: "Tercia", color: "#6a4c93", active: true }
+];
+const PITCHES = [
+  "C3","C#3","D3","D#3","E3","F3","F#3","G3","G#3","A3","A#3","B3",
+  "C4","C#4","D4","D#4","E4","F4","F#4","G4","G#4","A4","A#4","B4",
+  "C5","C#5","D5","D#5","E5","F5","F#5","G5"
+];
+
+const state = {
+  voices: structuredClone(VOICE_PRESET),
+  selectedVoiceId: "prime",
+  tokens: [],
+  blocks: [],
+  dragging: null
+};
+
+const keySelect = document.getElementById("key");
+const voicesEl = document.getElementById("voices");
+const staff = document.getElementById("editor-staff");
+const blocksEl = document.getElementById("blocks");
+
+KEYS.forEach((k) => {
+  const o = document.createElement("option");
+  o.value = k;
+  o.textContent = k;
+  keySelect.append(o);
+});
+
+function pitchToY(pitch) {
+  const idx = PITCHES.indexOf(pitch);
+  const baseY = 250;
+  return baseY - idx * 6;
+}
+
+function yToPitch(y) {
+  const baseY = 250;
+  const idx = Math.round((baseY - y) / 6);
+  return PITCHES[Math.max(0, Math.min(PITCHES.length - 1, idx))];
+}
+
+function splitPitch(p) {
+  const m = p.match(/^([A-G](?:#)?)(\d)$/);
+  return { note: m?.[1] || "C", octave: Number(m?.[2] || 4) };
+}
+
+function buildColumns(tokens, startX = 150) {
+  let cursor = startX;
+  const columns = tokens.map((t) => {
+    const syllW = Math.max((t.syllable || "").length * 18, 36);
+    const chordW = Math.max((t.chord || "").length * 14, 24);
+    const width = Math.max(60, syllW, chordW) + 20;
+    const centerX = cursor + width / 2;
+    const c = { startX: cursor, endX: cursor + width, centerX, width };
+    cursor += width;
+    return c;
+  });
+  return { columns, totalWidth: Math.max(980, cursor + 120) };
+}
+
+function tokenFromX(x, columns) {
+  return columns.findIndex((c) => x >= c.startX && x <= c.endX);
+}
+
+function renderVoices() {
+  voicesEl.innerHTML = "";
+  state.voices.forEach((v) => {
+    const row = document.createElement("div");
+    row.className = `voice-row${state.selectedVoiceId === v.id ? " active-edit" : ""}`;
+
+    const badge = document.createElement("span");
+    badge.className = "voice-badge";
+    badge.style.color = v.color;
+    badge.textContent = v.name;
+
+    const active = document.createElement("input");
+    active.type = "checkbox";
+    active.checked = v.active;
+    active.addEventListener("change", () => {
+      v.active = active.checked;
+      renderStaff(staff, state.tokens, state.voices, true);
+    });
+
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.textContent = `Editar ${v.name}`;
+    editBtn.className = "muted";
+    editBtn.addEventListener("click", () => {
+      state.selectedVoiceId = v.id;
+      renderVoices();
+    });
+
+    row.append(badge, active, document.createTextNode("Activa"), editBtn);
+    voicesEl.append(row);
+  });
+}
+
+function drawNote(ns, svg, x, y, color, tokenIndex, voiceId) {
+  const note = document.createElementNS(ns, "ellipse");
+  note.setAttribute("cx", String(x));
+  note.setAttribute("cy", String(y));
+  note.setAttribute("rx", "10");
+  note.setAttribute("ry", "7");
+  note.setAttribute("fill", color);
+  note.setAttribute("data-token", String(tokenIndex));
+  note.setAttribute("data-voice", voiceId);
+  note.style.cursor = "ns-resize";
+  svg.append(note);
+
+  const stem = document.createElementNS(ns, "line");
+  stem.setAttribute("x1", String(x + 9));
+  stem.setAttribute("x2", String(x + 9));
+  stem.setAttribute("y1", String(y));
+  stem.setAttribute("y2", String(y - 30));
+  stem.setAttribute("stroke", color);
+  stem.setAttribute("stroke-width", "2");
+  svg.append(stem);
+}
+
+function renderStaff(svg, tokens, voices, isEditor = false) {
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  const ns = "http://www.w3.org/2000/svg";
+
+  const { columns, totalWidth } = buildColumns(tokens);
+  svg.setAttribute("viewBox", `0 0 ${totalWidth} 320`);
+  svg.style.minWidth = `${totalWidth}px`;
+
+  const clef = document.createElementNS(ns, "text");
+  clef.setAttribute("x", "28");
+  clef.setAttribute("y", "230");
+  clef.setAttribute("font-size", "140");
+  clef.textContent = "𝄞";
+  svg.append(clef);
+
+  for (let i = 0; i < 5; i += 1) {
+    const y = 150 + i * 20;
+    const line = document.createElementNS(ns, "line");
+    line.setAttribute("x1", "100");
+    line.setAttribute("x2", String(totalWidth - 35));
+    line.setAttribute("y1", String(y));
+    line.setAttribute("y2", String(y));
+    line.setAttribute("stroke", "#1c2a2a");
+    line.setAttribute("stroke-width", "2");
+    svg.append(line);
+  }
+
+  tokens.forEach((t, i) => {
+    const col = columns[i];
+
+    const chord = document.createElementNS(ns, "text");
+    chord.setAttribute("x", String(col.centerX));
+    chord.setAttribute("y", "34");
+    chord.setAttribute("text-anchor", "middle");
+    chord.setAttribute("font-size", "20");
+    chord.setAttribute("fill", "#0a3b4a");
+    chord.textContent = t.chord || "";
+    svg.append(chord);
+
+    const syll = document.createElementNS(ns, "text");
+    syll.setAttribute("x", String(col.centerX));
+    syll.setAttribute("y", "66");
+    syll.setAttribute("text-anchor", "middle");
+    syll.setAttribute("font-size", "24");
+    syll.setAttribute("fill", "#6b7280");
+    syll.textContent = t.syllable.toUpperCase();
+    svg.append(syll);
+
+    const activeVoices = voices.filter((v) => v.active);
+    activeVoices.forEach((v, voiceIdx) => {
+      const pitch = t.notes?.[v.id];
+      if (!pitch) return;
+      const x = col.centerX + (voiceIdx - (activeVoices.length - 1) / 2) * 9;
+      drawNote(ns, svg, x, pitchToY(pitch), v.color, i, v.id);
+    });
+  });
+
+  if (isEditor) {
+    const help = document.createElementNS(ns, "text");
+    help.setAttribute("x", "100");
+    help.setAttribute("y", "302");
+    help.setAttribute("font-size", "13");
+    help.setAttribute("fill", "#4f6663");
+    const selectedName = state.voices.find((v) => v.id === state.selectedVoiceId)?.name || "-";
+    help.textContent = `Voz en edición: ${selectedName}. Clic para crear nota. Arrastrá vertical para mover.`;
+    svg.append(help);
+
+    svg.onmousedown = (event) => {
+      const target = event.target;
+      const pt = svg.createSVGPoint();
+      pt.x = event.clientX;
+      pt.y = event.clientY;
+      const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+      if (target.tagName === "ellipse" && target.dataset.token && target.dataset.voice) {
+        state.dragging = { tokenIndex: Number(target.dataset.token), voiceId: target.dataset.voice };
+        return;
+      }
+
+      const tokenIndex = tokenFromX(p.x, columns);
+      if (tokenIndex === -1 || !state.selectedVoiceId) return;
+      const pitch = yToPitch(p.y);
+      state.tokens[tokenIndex].notes[state.selectedVoiceId] = pitch;
+      renderStaff(staff, state.tokens, state.voices, true);
+    };
+
+    svg.onmousemove = (event) => {
+      if (!state.dragging) return;
+      const pt = svg.createSVGPoint();
+      pt.x = event.clientX;
+      pt.y = event.clientY;
+      const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+      const pitch = yToPitch(p.y);
+      const t = state.tokens[state.dragging.tokenIndex];
+      if (!t) return;
+      t.notes[state.dragging.voiceId] = pitch;
+      renderStaff(staff, state.tokens, state.voices, true);
+    };
+
+    svg.onmouseup = () => { state.dragging = null; };
+    svg.onmouseleave = () => { state.dragging = null; };
+  }
+}
+
+function renderBlocks() {
+  blocksEl.innerHTML = "";
+  state.blocks.forEach((b, i) => {
+    const item = document.createElement("article");
+    item.className = "block-item";
+
+    const meta = document.createElement("div");
+    meta.className = "block-meta";
+    meta.textContent = `Bloque ${i + 1} · ${b.songType} · Tonalidad ${b.key}`;
+
+    const wrap = document.createElement("div");
+    wrap.className = "staff-wrap";
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.classList.add("block-staff");
+    renderStaff(svg, b.tokens, b.voices, false);
+    wrap.append(svg);
+
+    item.append(meta, wrap);
+    blocksEl.append(item);
+  });
+}
+
+function resetAllBlank() {
+  state.tokens = [];
+  document.getElementById("syllable-input").value = "";
+  document.getElementById("chord-input").value = "";
+  renderStaff(staff, state.tokens, state.voices, true);
+}
+
+document.getElementById("token-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const syllableInput = document.getElementById("syllable-input");
+  const chordInput = document.getElementById("chord-input");
+  const syllable = syllableInput.value.trim();
+  if (!syllable) return;
+
+  state.tokens.push({
+    syllable,
+    chord: chordInput.value.trim(),
+    notes: Object.fromEntries(state.voices.filter((v) => v.active).map((v) => [v.id, null]))
+  });
+
+  syllableInput.value = "";
+  chordInput.value = "";
+  renderStaff(staff, state.tokens, state.voices, true);
+});
+
+document.getElementById("clear-line").addEventListener("click", resetAllBlank);
+
+document.getElementById("save-block").addEventListener("click", () => {
+  if (!state.tokens.length) return;
+  state.blocks.push({
+    tokens: structuredClone(state.tokens),
+    voices: structuredClone(state.voices),
+    key: document.getElementById("key").value,
+    songType: document.getElementById("song-type").value
+  });
+  renderBlocks();
+  resetAllBlank();
+});
+
+renderVoices();
+renderStaff(staff, state.tokens, state.voices, true);
+renderBlocks();
