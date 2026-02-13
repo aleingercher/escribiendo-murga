@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Arreglador de Murga</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header>
+        <h1>Arreglador de Murga Uruguaya</h1>
+        <p>Composición por bloques: Acorde → Letra → Pentagrama.</p>
+      </header>
+
+      <section class="card controls">
+        <div class="row">
+          <label for="song-type">Tipo</label>
+          <select id="song-type">
+            <option>Presentación</option>
+            <option>Cuplé</option>
+            <option>Salpicón</option>
+            <option>Canción final</option>
+            <option>Retirada</option>
+          </select>
+
+          <label for="base-key">Tonalidad base</label>
+          <select id="base-key"></select>
+
+          <span class="transpose-wrap">
+            <button id="transpose-down" type="button">- semitono</button>
+            <strong id="tonality-view">Tonalidad: C (0)</strong>
+            <button id="transpose-up" type="button">+ semitono</button>
+          </span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Editor del bloque</h2>
+        <p class="hint">Agregá pares (acorde + sílaba/palabra), luego guardá el bloque.</p>
+
+        <form id="token-form" class="row">
+          <input id="token-lyric" placeholder="Letra (ej: DON)" required />
+          <input id="token-chord" placeholder="Acorde (ej: Am, E7, Bb)" required />
+          <button type="submit">Agregar al bloque</button>
+          <button id="load-example" type="button" class="muted">Cargar ejemplo</button>
+        </form>
+
+        <div class="row">
+          <button id="clear-tokens" type="button" class="muted">Limpiar línea</button>
+        </div>
+
+        <div class="row">
+          <input id="phrase-input" placeholder="Frase completa (ej: Don de es ta raaan, en la en se na da el vie jo cei baaaaaaal)" />
+          <button id="apply-phrase" type="button" class="muted">Aplicar frase en sílabas</button>
+        </div>
+
+        <pre id="line-preview" class="line-preview"></pre>
+
+        <label for="staff-comments"><strong>Comentarios</strong></label>
+        <textarea id="staff-comments" rows="2" placeholder="Ligado, dinámica, etc."></textarea>
+
+        <h3>Cuerdas simultáneas</h3>
+        <div id="strings-container" class="strings-container"></div>
+        <div class="row">
+          <button id="add-string" type="button">+ Agregar cuerda</button>
+          <button id="save-block" type="button">Guardar bloque</button>
+          <button id="new-block" type="button" class="muted">Nuevo bloque vacío</button>
+        </div>
+
+        <div class="staff-scroll"><svg id="staff-preview" viewBox="0 0 960 300"></svg></div>
+      </section>
+
+      <section class="card">
+        <h2>Bloques finalizados</h2>
+        <div id="blocks-list" class="blocks-list"></div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
