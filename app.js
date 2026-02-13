@@ -33,6 +33,27 @@ const KEY_SIGNATURES = {
 
 const SHARP_SIGNATURE_PITCHES = ["F5", "C5", "G5", "D5", "A4", "E5", "B4"];
 const FLAT_SIGNATURE_PITCHES = ["B4", "E5", "A4", "D5", "G4", "C5", "F4"];
+const NOTE_TO_SEMITONE = {
+  C: 0,
+  "C#": 1,
+  Db: 1,
+  D: 2,
+  "D#": 3,
+  Eb: 3,
+  E: 4,
+  F: 5,
+  "F#": 6,
+  Gb: 6,
+  G: 7,
+  "G#": 8,
+  Ab: 8,
+  A: 9,
+  "A#": 10,
+  Bb: 10,
+  B: 11
+};
+const SEMITONE_TO_SHARP = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const SEMITONE_TO_FLAT = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
 
 const state = {
   voices: structuredClone(VOICE_PRESET),
@@ -40,7 +61,8 @@ const state = {
   tokens: [],
   blocks: [],
   dragging: null,
-  nextVoiceId: 100
+  nextVoiceId: 100,
+  currentKey: "C"
 };
 
 const keySelect = document.getElementById("key");
@@ -234,7 +256,7 @@ function drawAccidental(ns, svg, x, y, accidental, color = "#0a3b4a") {
 function getKeySignatureOffset(key) {
   const signature = getKeySignature(key);
   if (!signature.count || !signature.type) return 0;
-  return signature.count * 18;
+  return Math.min(72, signature.count * 11);
 }
 
 function drawKeySignature(ns, svg, key) {
@@ -243,13 +265,13 @@ function drawKeySignature(ns, svg, key) {
 
   const pitches = signature.type === "sharp" ? SHARP_SIGNATURE_PITCHES : FLAT_SIGNATURE_PITCHES;
   const symbol = signature.type === "sharp" ? "♯" : "♭";
-  const startX = 95;
+  const startX = 102;
 
   for (let i = 0; i < signature.count; i += 1) {
     const mark = document.createElementNS(ns, "text");
-    mark.setAttribute("x", String(startX + i * 18));
+    mark.setAttribute("x", String(startX + i * 11));
     mark.setAttribute("y", String(pitchToY(pitches[i]) + 8));
-    mark.setAttribute("font-size", "28");
+    mark.setAttribute("font-size", "22");
     mark.setAttribute("fill", "#1c2a2a");
     mark.textContent = symbol;
     svg.append(mark);
@@ -280,19 +302,19 @@ function hideNoteMenu() {
   menu.classList.remove("visible");
 }
 
-function renderStaff(svg, tokens, voices, isEditor = false, key = "C") {
+function renderStaff(svg, tokens, voices, isEditor = false, key = "C", onEditChord = null) {
   while (svg.firstChild) svg.removeChild(svg.firstChild);
   const ns = "http://www.w3.org/2000/svg";
 
   const signatureOffset = getKeySignatureOffset(key);
-  const { columns, totalWidth } = buildColumns(tokens, 150 + signatureOffset);
+  const { columns, totalWidth } = buildColumns(tokens, 132 + signatureOffset);
   svg.setAttribute("viewBox", `0 0 ${totalWidth} 320`);
   svg.style.minWidth = `${totalWidth}px`;
 
   const clef = document.createElementNS(ns, "text");
   clef.setAttribute("x", "28");
   clef.setAttribute("y", "230");
-  clef.setAttribute("font-size", "140");
+  clef.setAttribute("font-size", "112");
   clef.textContent = "𝄞";
   svg.append(clef);
 
@@ -316,11 +338,15 @@ function renderStaff(svg, tokens, voices, isEditor = false, key = "C") {
     const editChord = () => {
       const nextChord = prompt("Editar acorde", t.chord || "");
       if (nextChord === null) return;
+      if (onEditChord) {
+        onEditChord(i, nextChord.trim());
+        return;
+      }
       t.chord = nextChord.trim();
       renderStaff(staff, state.tokens, state.voices, true, keySelect.value);
     };
 
-    if (isEditor) {
+    if (isEditor || onEditChord) {
       const chordHitbox = document.createElementNS(ns, "rect");
       chordHitbox.setAttribute("x", String(col.startX));
       chordHitbox.setAttribute("y", "14");
@@ -339,7 +365,7 @@ function renderStaff(svg, tokens, voices, isEditor = false, key = "C") {
     chord.setAttribute("font-size", "20");
     chord.setAttribute("fill", "#0a3b4a");
     chord.textContent = t.chord || "—";
-    if (isEditor) {
+    if (isEditor || onEditChord) {
       chord.style.cursor = "pointer";
       chord.addEventListener("click", editChord);
     }
@@ -468,7 +494,10 @@ function renderBlocks() {
     wrap.className = "staff-wrap";
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.classList.add("block-staff");
-    renderStaff(svg, b.tokens, b.voices, false, b.key);
+    renderStaff(svg, b.tokens, b.voices, false, b.key, (tokenIndex, chord) => {
+      b.tokens[tokenIndex].chord = chord;
+      renderBlocks();
+    });
     wrap.append(svg);
 
     item.append(meta, wrap);
@@ -481,6 +510,90 @@ function resetAllBlank() {
   document.getElementById("syllable-input").value = "";
   document.getElementById("chord-input").value = "";
   renderStaff(staff, state.tokens, state.voices, true, keySelect.value);
+}
+
+function semitoneDelta(fromKey, toKey) {
+  const from = NOTE_TO_SEMITONE[fromKey];
+  const to = NOTE_TO_SEMITONE[toKey];
+  if (from == null || to == null) return 0;
+  let delta = to - from;
+  if (delta > 6) delta -= 12;
+  if (delta < -6) delta += 12;
+  return delta;
+}
+
+function shouldPreferFlats(key) {
+  return ["F", "Bb", "Eb", "Ab", "Db", "Gb", "Cb"].includes(key);
+}
+
+function transposeNoteName(note, semitones, preferFlats) {
+  const current = NOTE_TO_SEMITONE[note];
+  if (current == null) return note;
+  const next = (current + semitones + 12) % 12;
+  return preferFlats ? SEMITONE_TO_FLAT[next] : SEMITONE_TO_SHARP[next];
+}
+
+function transposeChord(chord, semitones, preferFlats) {
+  if (!chord || semitones === 0) return chord;
+  const match = chord.match(/^([A-G](?:#|b)?)([^/]*)(?:\/([A-G](?:#|b)?))?$/);
+  if (!match) return chord;
+  const [, root, quality = "", bass] = match;
+  const nextRoot = transposeNoteName(root, semitones, preferFlats);
+  const nextBass = bass ? transposeNoteName(bass, semitones, preferFlats) : null;
+  return `${nextRoot}${quality}${nextBass ? `/${nextBass}` : ""}`;
+}
+
+function naturalPitchToMidi(pitch) {
+  const match = pitch.match(/^([A-G])(\d)$/);
+  if (!match) return null;
+  const [, note, octaveRaw] = match;
+  const octave = Number(octaveRaw);
+  const semitone = NOTE_TO_SEMITONE[note];
+  if (semitone == null) return null;
+  return (octave + 1) * 12 + semitone;
+}
+
+function noteDataToMidi(noteData) {
+  if (!noteData?.pitch) return null;
+  const base = naturalPitchToMidi(noteData.pitch);
+  if (base == null) return null;
+  const offset = noteData.accidental === "sharp" ? 1 : noteData.accidental === "flat" ? -1 : 0;
+  return base + offset;
+}
+
+function midiToStaffNoteData(midi, preferFlats) {
+  const minMidi = naturalPitchToMidi(STAFF_PITCHES[0]);
+  const maxMidi = naturalPitchToMidi(STAFF_PITCHES[STAFF_PITCHES.length - 1]);
+  const safeMidi = Math.max(minMidi, Math.min(maxMidi, midi));
+  const octave = Math.floor(safeMidi / 12) - 1;
+  const semitone = ((safeMidi % 12) + 12) % 12;
+  const noteName = preferFlats ? SEMITONE_TO_FLAT[semitone] : SEMITONE_TO_SHARP[semitone];
+
+  if (noteName.length === 1) {
+    return { pitch: `${noteName}${octave}`, accidental: null };
+  }
+
+  const accidental = noteName.includes("#") ? "sharp" : "flat";
+  const natural = noteName[0];
+  const naturalOctave = accidental === "flat" && natural === "C" ? octave + 1 : octave;
+  return { pitch: `${natural}${naturalOctave}`, accidental };
+}
+
+function transposeStoredNote(noteValue, semitones, preferFlats) {
+  if (!noteValue || semitones === 0) return noteValue;
+  const noteData = getNoteData(noteValue);
+  const midi = noteDataToMidi(noteData);
+  if (midi == null) return noteValue;
+  return midiToStaffNoteData(midi + semitones, preferFlats);
+}
+
+function transposeTokens(tokens, semitones, preferFlats) {
+  tokens.forEach((token) => {
+    token.chord = transposeChord(token.chord, semitones, preferFlats);
+    Object.keys(token.notes || {}).forEach((voiceId) => {
+      token.notes[voiceId] = transposeStoredNote(token.notes[voiceId], semitones, preferFlats);
+    });
+  });
 }
 
 document.getElementById("token-form").addEventListener("submit", (e) => {
@@ -526,5 +639,20 @@ renderStaff(staff, state.tokens, state.voices, true, keySelect.value);
 renderBlocks();
 
 keySelect.addEventListener("change", () => {
+  const nextKey = keySelect.value;
+  const delta = semitoneDelta(state.currentKey, nextKey);
+  const preferFlats = shouldPreferFlats(nextKey);
+
+  if (delta !== 0) {
+    transposeTokens(state.tokens, delta, preferFlats);
+    state.blocks.forEach((block) => {
+      transposeTokens(block.tokens, delta, preferFlats);
+    });
+  }
+
+  state.blocks.forEach((block) => { block.key = nextKey; });
+
+  state.currentKey = nextKey;
   renderStaff(staff, state.tokens, state.voices, true, keySelect.value);
+  renderBlocks();
 });
