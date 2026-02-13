@@ -10,10 +10,29 @@ const VOICE_PRESET = [
 const VOICE_COLORS = ["#e63946", "#1d3557", "#0d9488", "#2a9d8f", "#6a4c93", "#ef476f", "#3a86ff"];
 // Pasos diatónicos (línea/entrelínea): sin semitonos intermedios
 const STAFF_PITCHES = [
-  "C3","D3","E3","F3","G3","A3","B3",
+  "F3","G3","A3","B3",
   "C4","D4","E4","F4","G4","A4","B4",
-  "C5","D5","E5","F5","G5","A5","B5"
+  "C5","D5","E5","F5","G5","A5","B5",
+  "C6","D6","E6"
 ];
+
+const KEY_SIGNATURES = {
+  C: { type: null, count: 0 },
+  G: { type: "sharp", count: 1 },
+  D: { type: "sharp", count: 2 },
+  A: { type: "sharp", count: 3 },
+  E: { type: "sharp", count: 4 },
+  B: { type: "sharp", count: 5 },
+  "F#": { type: "sharp", count: 6 },
+  "C#": { type: "sharp", count: 7 },
+  F: { type: "flat", count: 1 },
+  Bb: { type: "flat", count: 2 },
+  Eb: { type: "flat", count: 3 },
+  Ab: { type: "flat", count: 4 }
+};
+
+const SHARP_SIGNATURE_PITCHES = ["F5", "C5", "G5", "D5", "A4", "E5", "B4"];
+const FLAT_SIGNATURE_PITCHES = ["B4", "E5", "A4", "D5", "G4", "C5", "F4"];
 
 const state = {
   voices: structuredClone(VOICE_PRESET),
@@ -38,12 +57,12 @@ KEYS.forEach((k) => {
 
 function pitchToY(pitch) {
   const idx = STAFF_PITCHES.indexOf(pitch);
-  const baseY = 260;
+  const baseY = 320;
   return baseY - idx * 10;
 }
 
 function yToPitch(y) {
-  const baseY = 260;
+  const baseY = 320;
   const idx = Math.round((baseY - y) / 10);
   return STAFF_PITCHES[Math.max(0, Math.min(STAFF_PITCHES.length - 1, idx))];
 }
@@ -60,6 +79,16 @@ function buildColumns(tokens, startX = 150) {
     return c;
   });
   return { columns, totalWidth: Math.max(980, cursor + 120) };
+}
+
+function getKeySignature(key) {
+  return KEY_SIGNATURES[key] || { type: null, count: 0 };
+}
+
+function getNoteData(noteValue) {
+  if (!noteValue) return null;
+  if (typeof noteValue === "string") return { pitch: noteValue, accidental: null };
+  return { pitch: noteValue.pitch, accidental: noteValue.accidental || null };
 }
 
 function tokenFromX(x, columns) {
@@ -101,14 +130,14 @@ function renderVoices() {
       if (name === v.name) o.selected = true;
       typeSelect.append(o);
     });
-    typeSelect.addEventListener("change", () => { v.name = typeSelect.value; renderStaff(staff, state.tokens, state.voices, true); });
+    typeSelect.addEventListener("change", () => { v.name = typeSelect.value; renderStaff(staff, state.tokens, state.voices, true, keySelect.value); });
 
     const active = document.createElement("input");
     active.type = "checkbox";
     active.checked = v.active;
     active.addEventListener("change", () => {
       v.active = active.checked;
-      renderStaff(staff, state.tokens, state.voices, true);
+      renderStaff(staff, state.tokens, state.voices, true, keySelect.value);
     });
 
     const editBtn = document.createElement("button");
@@ -127,7 +156,7 @@ function renderVoices() {
     removeBtn.addEventListener("click", () => {
       removeVoice(v.id);
       renderVoices();
-      renderStaff(staff, state.tokens, state.voices, true);
+      renderStaff(staff, state.tokens, state.voices, true, keySelect.value);
     });
 
     row.append(badge, typeSelect, active, document.createTextNode("Activa"), editBtn, removeBtn);
@@ -191,11 +220,72 @@ function drawNote(ns, svg, x, y, color, tokenIndex, voiceId) {
   svg.append(stem);
 }
 
-function renderStaff(svg, tokens, voices, isEditor = false) {
+function drawAccidental(ns, svg, x, y, accidental, color = "#0a3b4a") {
+  if (!accidental) return;
+  const text = document.createElementNS(ns, "text");
+  text.setAttribute("x", String(x - 24));
+  text.setAttribute("y", String(y + 6));
+  text.setAttribute("font-size", "24");
+  text.setAttribute("fill", color);
+  text.textContent = accidental === "sharp" ? "♯" : accidental === "flat" ? "♭" : "♮";
+  svg.append(text);
+}
+
+function getKeySignatureOffset(key) {
+  const signature = getKeySignature(key);
+  if (!signature.count || !signature.type) return 0;
+  return signature.count * 18;
+}
+
+function drawKeySignature(ns, svg, key) {
+  const signature = getKeySignature(key);
+  if (!signature.count || !signature.type) return;
+
+  const pitches = signature.type === "sharp" ? SHARP_SIGNATURE_PITCHES : FLAT_SIGNATURE_PITCHES;
+  const symbol = signature.type === "sharp" ? "♯" : "♭";
+  const startX = 95;
+
+  for (let i = 0; i < signature.count; i += 1) {
+    const mark = document.createElementNS(ns, "text");
+    mark.setAttribute("x", String(startX + i * 18));
+    mark.setAttribute("y", String(pitchToY(pitches[i]) + 8));
+    mark.setAttribute("font-size", "28");
+    mark.setAttribute("fill", "#1c2a2a");
+    mark.textContent = symbol;
+    svg.append(mark);
+  }
+
+}
+
+function ensureNoteMenu() {
+  let menu = document.getElementById("note-context-menu");
+  if (menu) return menu;
+
+  menu = document.createElement("div");
+  menu.id = "note-context-menu";
+  menu.className = "context-menu";
+  menu.innerHTML = `
+    <button type="button" data-accidental="flat">♭ Bemol</button>
+    <button type="button" data-accidental="sharp">♯ Sostenido</button>
+    <button type="button" data-accidental="none">Quitar alteración</button>
+  `;
+
+  document.body.append(menu);
+  return menu;
+}
+
+function hideNoteMenu() {
+  const menu = document.getElementById("note-context-menu");
+  if (!menu) return;
+  menu.classList.remove("visible");
+}
+
+function renderStaff(svg, tokens, voices, isEditor = false, key = "C") {
   while (svg.firstChild) svg.removeChild(svg.firstChild);
   const ns = "http://www.w3.org/2000/svg";
 
-  const { columns, totalWidth } = buildColumns(tokens);
+  const signatureOffset = getKeySignatureOffset(key);
+  const { columns, totalWidth } = buildColumns(tokens, 150 + signatureOffset);
   svg.setAttribute("viewBox", `0 0 ${totalWidth} 320`);
   svg.style.minWidth = `${totalWidth}px`;
 
@@ -205,6 +295,8 @@ function renderStaff(svg, tokens, voices, isEditor = false) {
   clef.setAttribute("font-size", "140");
   clef.textContent = "𝄞";
   svg.append(clef);
+
+  drawKeySignature(ns, svg, key);
 
   for (let i = 0; i < 5; i += 1) {
     const y = 150 + i * 20;
@@ -221,13 +313,36 @@ function renderStaff(svg, tokens, voices, isEditor = false) {
   tokens.forEach((t, i) => {
     const col = columns[i];
 
+    const editChord = () => {
+      const nextChord = prompt("Editar acorde", t.chord || "");
+      if (nextChord === null) return;
+      t.chord = nextChord.trim();
+      renderStaff(staff, state.tokens, state.voices, true, keySelect.value);
+    };
+
+    if (isEditor) {
+      const chordHitbox = document.createElementNS(ns, "rect");
+      chordHitbox.setAttribute("x", String(col.startX));
+      chordHitbox.setAttribute("y", "14");
+      chordHitbox.setAttribute("width", String(col.width));
+      chordHitbox.setAttribute("height", "28");
+      chordHitbox.setAttribute("fill", "transparent");
+      chordHitbox.style.cursor = "pointer";
+      chordHitbox.addEventListener("click", editChord);
+      svg.append(chordHitbox);
+    }
+
     const chord = document.createElementNS(ns, "text");
     chord.setAttribute("x", String(col.centerX));
     chord.setAttribute("y", "34");
     chord.setAttribute("text-anchor", "middle");
     chord.setAttribute("font-size", "20");
     chord.setAttribute("fill", "#0a3b4a");
-    chord.textContent = t.chord || "";
+    chord.textContent = t.chord || "—";
+    if (isEditor) {
+      chord.style.cursor = "pointer";
+      chord.addEventListener("click", editChord);
+    }
     svg.append(chord);
 
     const syll = document.createElementNS(ns, "text");
@@ -240,11 +355,12 @@ function renderStaff(svg, tokens, voices, isEditor = false) {
     svg.append(syll);
 
     voices.filter((v) => v.active).forEach((v) => {
-      const pitch = t.notes?.[v.id];
-      if (!pitch) return;
+      const noteData = getNoteData(t.notes?.[v.id]);
+      if (!noteData?.pitch) return;
       // mismas x para todas las voces: una arriba de otra
       const x = col.centerX;
-      drawNote(ns, svg, x, pitchToY(pitch), v.color, i, v.id);
+      drawNote(ns, svg, x, pitchToY(noteData.pitch), v.color, i, v.id);
+      drawAccidental(ns, svg, x, pitchToY(noteData.pitch), noteData.accidental);
     });
   });
 
@@ -255,8 +371,12 @@ function renderStaff(svg, tokens, voices, isEditor = false) {
     help.setAttribute("font-size", "13");
     help.setAttribute("fill", "#4f6663");
     const selectedName = state.voices.find((v) => v.id === state.selectedVoiceId)?.name || "-";
-    help.textContent = `Voz en edición: ${selectedName}. Clic para crear nota. Arrastrá vertical para mover (pasos línea/entrelínea).`;
+    help.textContent = `Voz en edición: ${selectedName}. Clic para crear nota · Ctrl+clic para borrar · Clic derecho para alteraciones · Arrastrá vertical para mover.`;
     svg.append(help);
+
+    const menu = ensureNoteMenu();
+    const closeMenu = () => hideNoteMenu();
+    document.addEventListener("click", closeMenu, { once: true });
 
     svg.onmousedown = (event) => {
       const target = event.target;
@@ -266,6 +386,13 @@ function renderStaff(svg, tokens, voices, isEditor = false) {
       const p = pt.matrixTransform(svg.getScreenCTM().inverse());
 
       if (target.tagName === "ellipse" && target.dataset.token && target.dataset.voice) {
+        if (event.ctrlKey) {
+          const tokenIndex = Number(target.dataset.token);
+          const voiceId = target.dataset.voice;
+          state.tokens[tokenIndex].notes[voiceId] = null;
+          renderStaff(staff, state.tokens, state.voices, true, keySelect.value);
+          return;
+        }
         state.dragging = { tokenIndex: Number(target.dataset.token), voiceId: target.dataset.voice };
         return;
       }
@@ -273,8 +400,12 @@ function renderStaff(svg, tokens, voices, isEditor = false) {
       const tokenIndex = tokenFromX(p.x, columns);
       if (tokenIndex === -1 || !state.selectedVoiceId) return;
       const pitch = yToPitch(p.y);
-      state.tokens[tokenIndex].notes[state.selectedVoiceId] = pitch;
-      renderStaff(staff, state.tokens, state.voices, true);
+      if (event.ctrlKey) {
+        state.tokens[tokenIndex].notes[state.selectedVoiceId] = null;
+      } else {
+        state.tokens[tokenIndex].notes[state.selectedVoiceId] = { pitch, accidental: null };
+      }
+      renderStaff(staff, state.tokens, state.voices, true, keySelect.value);
     };
 
     svg.onmousemove = (event) => {
@@ -286,8 +417,36 @@ function renderStaff(svg, tokens, voices, isEditor = false) {
       const pitch = yToPitch(p.y);
       const t = state.tokens[state.dragging.tokenIndex];
       if (!t) return;
-      t.notes[state.dragging.voiceId] = pitch;
-      renderStaff(staff, state.tokens, state.voices, true);
+      const current = getNoteData(t.notes[state.dragging.voiceId]);
+      t.notes[state.dragging.voiceId] = { pitch, accidental: current?.accidental || null };
+      renderStaff(staff, state.tokens, state.voices, true, keySelect.value);
+    };
+
+    svg.oncontextmenu = (event) => {
+      const target = event.target;
+      if (!(target.tagName === "ellipse" && target.dataset.token && target.dataset.voice)) {
+        hideNoteMenu();
+        return;
+      }
+
+      event.preventDefault();
+      const tokenIndex = Number(target.dataset.token);
+      const voiceId = target.dataset.voice;
+
+      menu.style.left = `${event.clientX}px`;
+      menu.style.top = `${event.clientY}px`;
+      menu.classList.add("visible");
+
+      menu.onclick = (menuEvent) => {
+        const button = menuEvent.target.closest("button[data-accidental]");
+        if (!button) return;
+        const current = getNoteData(state.tokens[tokenIndex].notes[voiceId]);
+        if (!current) return;
+        const accidental = button.dataset.accidental === "none" ? null : button.dataset.accidental;
+        state.tokens[tokenIndex].notes[voiceId] = { ...current, accidental };
+        hideNoteMenu();
+        renderStaff(staff, state.tokens, state.voices, true, keySelect.value);
+      };
     };
 
     svg.onmouseup = () => { state.dragging = null; };
@@ -309,7 +468,7 @@ function renderBlocks() {
     wrap.className = "staff-wrap";
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.classList.add("block-staff");
-    renderStaff(svg, b.tokens, b.voices, false);
+    renderStaff(svg, b.tokens, b.voices, false, b.key);
     wrap.append(svg);
 
     item.append(meta, wrap);
@@ -321,7 +480,7 @@ function resetAllBlank() {
   state.tokens = [];
   document.getElementById("syllable-input").value = "";
   document.getElementById("chord-input").value = "";
-  renderStaff(staff, state.tokens, state.voices, true);
+  renderStaff(staff, state.tokens, state.voices, true, keySelect.value);
 }
 
 document.getElementById("token-form").addEventListener("submit", (e) => {
@@ -339,13 +498,13 @@ document.getElementById("token-form").addEventListener("submit", (e) => {
 
   syllableInput.value = "";
   chordInput.value = "";
-  renderStaff(staff, state.tokens, state.voices, true);
+  renderStaff(staff, state.tokens, state.voices, true, keySelect.value);
 });
 
 document.getElementById("add-voice").addEventListener("click", () => {
   addVoice("Sobreprime");
   renderVoices();
-  renderStaff(staff, state.tokens, state.voices, true);
+  renderStaff(staff, state.tokens, state.voices, true, keySelect.value);
 });
 
 document.getElementById("clear-line").addEventListener("click", resetAllBlank);
@@ -363,5 +522,9 @@ document.getElementById("save-block").addEventListener("click", () => {
 });
 
 renderVoices();
-renderStaff(staff, state.tokens, state.voices, true);
+renderStaff(staff, state.tokens, state.voices, true, keySelect.value);
 renderBlocks();
+
+keySelect.addEventListener("change", () => {
+  renderStaff(staff, state.tokens, state.voices, true, keySelect.value);
+});
