@@ -10,10 +10,11 @@
     <main class="app">
       <header>
         <h1>Arreglador de Murga Uruguaya</h1>
-        <p>Composición por bloques: Acorde → Letra → Pentagrama.</p>
+        <p>Flujo: tonalidad → sílaba/acorde → notas por voz en pentagrama (clic y drag vertical).</p>
       </header>
 
-      <section class="card controls">
+      <section class="card">
+        <h2>1) Configuración</h2>
         <div class="row">
           <label for="song-type">Tipo</label>
           <select id="song-type">
@@ -24,56 +25,37 @@
             <option>Retirada</option>
           </select>
 
-          <label for="base-key">Tonalidad base</label>
-          <select id="base-key"></select>
-
-          <span class="transpose-wrap">
-            <button id="transpose-down" type="button">- semitono</button>
-            <strong id="tonality-view">Tonalidad: C (0)</strong>
-            <button id="transpose-up" type="button">+ semitono</button>
-          </span>
+          <label for="key">Tonalidad</label>
+          <select id="key"></select>
         </div>
       </section>
 
       <section class="card">
-        <h2>Editor del bloque</h2>
-        <p class="hint">Agregá pares (acorde + sílaba/palabra), luego guardá el bloque.</p>
-
+        <h2>2) Agregar sílaba y acorde</h2>
         <form id="token-form" class="row">
-          <input id="token-lyric" placeholder="Letra (ej: DON)" required />
-          <input id="token-chord" placeholder="Acorde (ej: Am, E7, Bb)" required />
-          <button type="submit">Agregar al bloque</button>
-          <button id="load-example" type="button" class="muted">Cargar ejemplo</button>
+          <input id="syllable-input" placeholder="Sílaba (ej: DON)" required />
+          <input id="chord-input" placeholder="Acorde opcional (ej: Am)" />
+          <button type="submit">Agregar sílaba</button>
+          <button id="clear-line" type="button" class="muted">Limpiar</button>
         </form>
-
-        <div class="row">
-          <button id="clear-tokens" type="button" class="muted">Limpiar línea</button>
-        </div>
-
-        <div class="row">
-          <input id="phrase-input" placeholder="Frase completa (ej: Don de es ta raaan, en la en se na da el vie jo cei baaaaaaal)" />
-          <button id="apply-phrase" type="button" class="muted">Aplicar frase en sílabas</button>
-        </div>
-
-        <pre id="line-preview" class="line-preview"></pre>
-
-        <label for="staff-comments"><strong>Comentarios</strong></label>
-        <textarea id="staff-comments" rows="2" placeholder="Ligado, dinámica, etc."></textarea>
-
-        <h3>Cuerdas simultáneas</h3>
-        <div id="strings-container" class="strings-container"></div>
-        <div class="row">
-          <button id="add-string" type="button">+ Agregar cuerda</button>
-          <button id="save-block" type="button">Guardar bloque</button>
-          <button id="new-block" type="button" class="muted">Nuevo bloque vacío</button>
-        </div>
-
-        <div class="staff-scroll"><svg id="staff-preview" viewBox="0 0 960 300"></svg></div>
       </section>
 
       <section class="card">
+        <h2>3) Voces activas y edición</h2>
+        <p class="hint">Elegí una voz con “Editar”, luego hacé clic en una columna del pentagrama para poner la nota. Arrastrá la nota para subir/bajar.</p>
+        <div id="voices" class="voices"></div>
+
+        <div class="staff-wrap">
+          <svg id="editor-staff" viewBox="0 0 980 320" aria-label="Pentagrama editor"></svg>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="row">
+          <button id="save-block" type="button">Guardar bloque</button>
+        </div>
         <h2>Bloques finalizados</h2>
-        <div id="blocks-list" class="blocks-list"></div>
+        <div id="blocks" class="blocks"></div>
       </section>
     </main>
 
