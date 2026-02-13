@@ -1,14 +1,18 @@
 const KEYS = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
+const VOICE_TYPES = ["Prime", "Prime alte", "Sobreprime", "Segundo", "Tercia", "Solista 1", "Solista 2", "Solista 3", "Solista 4", "Solista 5", "Solista 6"];
 const VOICE_PRESET = [
   { id: "prime", name: "Prime", color: "#e63946", active: true },
   { id: "prime_alte", name: "Prime alte", color: "#1d3557", active: true },
+  { id: "sobreprime", name: "Sobreprime", color: "#0d9488", active: true },
   { id: "segundo", name: "Segundo", color: "#2a9d8f", active: true },
   { id: "tercia", name: "Tercia", color: "#6a4c93", active: true }
 ];
-const PITCHES = [
-  "C3","C#3","D3","D#3","E3","F3","F#3","G3","G#3","A3","A#3","B3",
-  "C4","C#4","D4","D#4","E4","F4","F#4","G4","G#4","A4","A#4","B4",
-  "C5","C#5","D5","D#5","E5","F5","F#5","G5"
+const VOICE_COLORS = ["#e63946", "#1d3557", "#0d9488", "#2a9d8f", "#6a4c93", "#ef476f", "#3a86ff"];
+// Pasos diatónicos (línea/entrelínea): sin semitonos intermedios
+const STAFF_PITCHES = [
+  "C3","D3","E3","F3","G3","A3","B3",
+  "C4","D4","E4","F4","G4","A4","B4",
+  "C5","D5","E5","F5","G5","A5","B5"
 ];
 
 const state = {
@@ -16,7 +20,8 @@ const state = {
   selectedVoiceId: "prime",
   tokens: [],
   blocks: [],
-  dragging: null
+  dragging: null,
+  nextVoiceId: 100
 };
 
 const keySelect = document.getElementById("key");
@@ -32,20 +37,15 @@ KEYS.forEach((k) => {
 });
 
 function pitchToY(pitch) {
-  const idx = PITCHES.indexOf(pitch);
-  const baseY = 250;
-  return baseY - idx * 6;
+  const idx = STAFF_PITCHES.indexOf(pitch);
+  const baseY = 260;
+  return baseY - idx * 10;
 }
 
 function yToPitch(y) {
-  const baseY = 250;
-  const idx = Math.round((baseY - y) / 6);
-  return PITCHES[Math.max(0, Math.min(PITCHES.length - 1, idx))];
-}
-
-function splitPitch(p) {
-  const m = p.match(/^([A-G](?:#)?)(\d)$/);
-  return { note: m?.[1] || "C", octave: Number(m?.[2] || 4) };
+  const baseY = 260;
+  const idx = Math.round((baseY - y) / 10);
+  return STAFF_PITCHES[Math.max(0, Math.min(STAFF_PITCHES.length - 1, idx))];
 }
 
 function buildColumns(tokens, startX = 150) {
@@ -66,6 +66,22 @@ function tokenFromX(x, columns) {
   return columns.findIndex((c) => x >= c.startX && x <= c.endX);
 }
 
+function addVoice(name = "Sobreprime") {
+  const color = VOICE_COLORS[state.voices.length % VOICE_COLORS.length];
+  const id = `voice_${state.nextVoiceId++}`;
+  state.voices.push({ id, name, color, active: true });
+  state.tokens.forEach((t) => { t.notes[id] = null; });
+  state.selectedVoiceId = id;
+}
+
+function removeVoice(id) {
+  state.voices = state.voices.filter((v) => v.id !== id);
+  state.tokens.forEach((t) => { delete t.notes[id]; });
+  if (!state.voices.find((v) => v.id === state.selectedVoiceId)) {
+    state.selectedVoiceId = state.voices[0]?.id || null;
+  }
+}
+
 function renderVoices() {
   voicesEl.innerHTML = "";
   state.voices.forEach((v) => {
@@ -77,6 +93,16 @@ function renderVoices() {
     badge.style.color = v.color;
     badge.textContent = v.name;
 
+    const typeSelect = document.createElement("select");
+    VOICE_TYPES.forEach((name) => {
+      const o = document.createElement("option");
+      o.value = name;
+      o.textContent = name;
+      if (name === v.name) o.selected = true;
+      typeSelect.append(o);
+    });
+    typeSelect.addEventListener("change", () => { v.name = typeSelect.value; renderStaff(staff, state.tokens, state.voices, true); });
+
     const active = document.createElement("input");
     active.type = "checkbox";
     active.checked = v.active;
@@ -87,19 +113,63 @@ function renderVoices() {
 
     const editBtn = document.createElement("button");
     editBtn.type = "button";
-    editBtn.textContent = `Editar ${v.name}`;
+    editBtn.textContent = `Editar`;
     editBtn.className = "muted";
     editBtn.addEventListener("click", () => {
       state.selectedVoiceId = v.id;
       renderVoices();
     });
 
-    row.append(badge, active, document.createTextNode("Activa"), editBtn);
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.textContent = "Quitar";
+    removeBtn.className = "muted";
+    removeBtn.addEventListener("click", () => {
+      removeVoice(v.id);
+      renderVoices();
+      renderStaff(staff, state.tokens, state.voices, true);
+    });
+
+    row.append(badge, typeSelect, active, document.createTextNode("Activa"), editBtn, removeBtn);
     voicesEl.append(row);
   });
 }
 
+function drawLedgerLines(ns, svg, x, y) {
+  const topLine = 150;
+  const bottomLine = 230;
+  const lineLen = 24;
+
+  if (y < topLine) {
+    for (let ly = topLine - 20; ly >= y; ly -= 20) {
+      const line = document.createElementNS(ns, "line");
+      line.setAttribute("x1", String(x - lineLen / 2));
+      line.setAttribute("x2", String(x + lineLen / 2));
+      line.setAttribute("y1", String(ly));
+      line.setAttribute("y2", String(ly));
+      line.setAttribute("stroke", "#1c2a2a");
+      line.setAttribute("stroke-width", "1.6");
+      svg.append(line);
+    }
+  }
+
+  if (y > bottomLine) {
+    for (let ly = bottomLine + 20; ly <= y; ly += 20) {
+      const line = document.createElementNS(ns, "line");
+      line.setAttribute("x1", String(x - lineLen / 2));
+      line.setAttribute("x2", String(x + lineLen / 2));
+      line.setAttribute("y1", String(ly));
+      line.setAttribute("y2", String(ly));
+      line.setAttribute("stroke", "#1c2a2a");
+      line.setAttribute("stroke-width", "1.6");
+      svg.append(line);
+    }
+  }
+}
+
 function drawNote(ns, svg, x, y, color, tokenIndex, voiceId) {
+  drawLedgerLines(ns, svg, x, y);
+
   const note = document.createElementNS(ns, "ellipse");
   note.setAttribute("cx", String(x));
   note.setAttribute("cy", String(y));
@@ -169,11 +239,11 @@ function renderStaff(svg, tokens, voices, isEditor = false) {
     syll.textContent = t.syllable.toUpperCase();
     svg.append(syll);
 
-    const activeVoices = voices.filter((v) => v.active);
-    activeVoices.forEach((v, voiceIdx) => {
+    voices.filter((v) => v.active).forEach((v) => {
       const pitch = t.notes?.[v.id];
       if (!pitch) return;
-      const x = col.centerX + (voiceIdx - (activeVoices.length - 1) / 2) * 9;
+      // mismas x para todas las voces: una arriba de otra
+      const x = col.centerX;
       drawNote(ns, svg, x, pitchToY(pitch), v.color, i, v.id);
     });
   });
@@ -185,7 +255,7 @@ function renderStaff(svg, tokens, voices, isEditor = false) {
     help.setAttribute("font-size", "13");
     help.setAttribute("fill", "#4f6663");
     const selectedName = state.voices.find((v) => v.id === state.selectedVoiceId)?.name || "-";
-    help.textContent = `Voz en edición: ${selectedName}. Clic para crear nota. Arrastrá vertical para mover.`;
+    help.textContent = `Voz en edición: ${selectedName}. Clic para crear nota. Arrastrá vertical para mover (pasos línea/entrelínea).`;
     svg.append(help);
 
     svg.onmousedown = (event) => {
@@ -264,11 +334,17 @@ document.getElementById("token-form").addEventListener("submit", (e) => {
   state.tokens.push({
     syllable,
     chord: chordInput.value.trim(),
-    notes: Object.fromEntries(state.voices.filter((v) => v.active).map((v) => [v.id, null]))
+    notes: Object.fromEntries(state.voices.map((v) => [v.id, null]))
   });
 
   syllableInput.value = "";
   chordInput.value = "";
+  renderStaff(staff, state.tokens, state.voices, true);
+});
+
+document.getElementById("add-voice").addEventListener("click", () => {
+  addVoice("Sobreprime");
+  renderVoices();
   renderStaff(staff, state.tokens, state.voices, true);
 });
 
