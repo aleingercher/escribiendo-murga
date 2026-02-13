@@ -253,6 +253,24 @@ function drawAccidental(ns, svg, x, y, accidental, color = "#0a3b4a") {
   svg.append(text);
 }
 
+function keySignatureAccidentalForLetter(key, letter) {
+  const signature = getKeySignature(key);
+  if (!signature.count || !signature.type) return null;
+
+  const order = signature.type === "sharp"
+    ? ["F", "C", "G", "D", "A", "E", "B"]
+    : ["B", "E", "A", "D", "G", "C", "F"];
+  return order.slice(0, signature.count).includes(letter) ? signature.type : null;
+}
+
+function visibleAccidentalForNote(noteData, key) {
+  if (!noteData?.pitch) return null;
+  const letter = noteData.pitch[0];
+  const signatureAccidental = keySignatureAccidentalForLetter(key, letter);
+  if (!noteData.accidental) return null;
+  return noteData.accidental === signatureAccidental ? null : noteData.accidental;
+}
+
 function getKeySignatureOffset(key) {
   const signature = getKeySignature(key);
   if (!signature.count || !signature.type) return 0;
@@ -386,7 +404,7 @@ function renderStaff(svg, tokens, voices, isEditor = false, key = "C", onEditCho
       // mismas x para todas las voces: una arriba de otra
       const x = col.centerX;
       drawNote(ns, svg, x, pitchToY(noteData.pitch), v.color, i, v.id);
-      drawAccidental(ns, svg, x, pitchToY(noteData.pitch), noteData.accidental);
+      drawAccidental(ns, svg, x, pitchToY(noteData.pitch), visibleAccidentalForNote(noteData, key));
     });
   });
 
@@ -587,6 +605,63 @@ function transposeStoredNote(noteValue, semitones, preferFlats) {
   return midiToStaffNoteData(midi + semitones, preferFlats);
 }
 
+function normalizeStoredNoteForKey(noteValue, key) {
+  const noteData = getNoteData(noteValue);
+  if (!noteData?.pitch || !noteData.accidental) return noteValue;
+  const signatureAccidental = keySignatureAccidentalForLetter(key, noteData.pitch[0]);
+  if (noteData.accidental !== signatureAccidental) return noteValue;
+  return { pitch: noteData.pitch, accidental: null };
+}
+
+function shiftTokenNotesByOctave(tokens, octaves, preferFlats) {
+  if (!octaves) return;
+  const semitones = octaves * 12;
+  tokens.forEach((token) => {
+    Object.keys(token.notes || {}).forEach((voiceId) => {
+      token.notes[voiceId] = transposeStoredNote(token.notes[voiceId], semitones, preferFlats);
+    });
+  });
+}
+
+function keepNotesInsideStaffRange(tokens, preferFlats) {
+  const MIN_VISIBLE_INDEX = 5; // D4: segunda raya extra inferior
+  const MAX_VISIBLE_INDEX = STAFF_PITCHES.length - 1; // E6: segunda raya extra superior
+
+  let minIndex = Infinity;
+  let maxIndex = -Infinity;
+
+  tokens.forEach((token) => {
+    Object.values(token.notes || {}).forEach((noteValue) => {
+      const noteData = getNoteData(noteValue);
+      if (!noteData?.pitch) return;
+      const idx = STAFF_PITCHES.indexOf(noteData.pitch);
+      if (idx === -1) return;
+      minIndex = Math.min(minIndex, idx);
+      maxIndex = Math.max(maxIndex, idx);
+    });
+  });
+
+  if (!Number.isFinite(minIndex)) return;
+
+  let octaveShift = 0;
+  while (minIndex + octaveShift * 7 < MIN_VISIBLE_INDEX && maxIndex + (octaveShift + 1) * 7 <= MAX_VISIBLE_INDEX) {
+    octaveShift += 1;
+  }
+  while (maxIndex + octaveShift * 7 > MAX_VISIBLE_INDEX && minIndex + (octaveShift - 1) * 7 >= MIN_VISIBLE_INDEX) {
+    octaveShift -= 1;
+  }
+
+  shiftTokenNotesByOctave(tokens, octaveShift, preferFlats);
+}
+
+function normalizeNotesForKey(tokens, key) {
+  tokens.forEach((token) => {
+    Object.keys(token.notes || {}).forEach((voiceId) => {
+      token.notes[voiceId] = normalizeStoredNoteForKey(token.notes[voiceId], key);
+    });
+  });
+}
+
 function transposeTokens(tokens, semitones, preferFlats) {
   tokens.forEach((token) => {
     token.chord = transposeChord(token.chord, semitones, preferFlats);
@@ -649,6 +724,16 @@ keySelect.addEventListener("change", () => {
       transposeTokens(block.tokens, delta, preferFlats);
     });
   }
+
+  keepNotesInsideStaffRange(state.tokens, preferFlats);
+  state.blocks.forEach((block) => {
+    keepNotesInsideStaffRange(block.tokens, preferFlats);
+  });
+
+  normalizeNotesForKey(state.tokens, nextKey);
+  state.blocks.forEach((block) => {
+    normalizeNotesForKey(block.tokens, nextKey);
+  });
 
   state.blocks.forEach((block) => { block.key = nextKey; });
 
